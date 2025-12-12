@@ -1,5 +1,4 @@
 'use client';
-import L from 'leaflet';
 import { useEffect, useMemo, useRef } from 'react';
 
 type Marker = {
@@ -15,51 +14,74 @@ export function MapPanel(props: {
   radiusKm: number;
   markers: Marker[];
 }) {
-  const mapRef = useRef<L.Map | null>(null);
-  const markersLayerRef = useRef<L.LayerGroup | null>(null);
+  const mapRef = useRef<any>(null);
+  const markersLayerRef = useRef<any>(null);
+  const leafletRef = useRef<any>(null);
 
   const radiusMeters = useMemo(() => props.radiusKm * 1000, [props.radiusKm]);
 
   useEffect(() => {
     if (mapRef.current) return;
 
-    const map = L.map('locust-map', {
-      center: [props.center.lat, props.center.lng],
-      zoom: 12,
-      zoomControl: true,
-    });
+    let disposed = false;
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors',
-      maxZoom: 19,
-    }).addTo(map);
+    (async () => {
+      const mod = await import('leaflet');
+      const Leaflet = (mod as any).default ?? mod;
+      leafletRef.current = Leaflet;
 
-    L.circle([props.center.lat, props.center.lng], {
-      radius: radiusMeters,
-      fillOpacity: 0.08,
-      weight: 2,
-    }).addTo(map);
+      if (disposed) return;
 
-    markersLayerRef.current = L.layerGroup().addTo(map);
+      const map = Leaflet.map('locust-map', {
+        center: [props.center.lat, props.center.lng],
+        zoom: 12,
+        zoomControl: true,
+      });
 
-    mapRef.current = map;
+      Leaflet.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 19,
+      }).addTo(map);
+
+      Leaflet.circle([props.center.lat, props.center.lng], {
+        radius: radiusMeters,
+        fillOpacity: 0.08,
+        weight: 2,
+      }).addTo(map);
+
+      markersLayerRef.current = Leaflet.layerGroup().addTo(map);
+
+      mapRef.current = map;
+    })();
 
     return () => {
-      map.remove();
+      disposed = true;
+      try {
+        mapRef.current?.remove?.();
+      } catch {
+        // ignore
+      }
       mapRef.current = null;
       markersLayerRef.current = null;
+      leafletRef.current = null;
     };
   }, [props.center.lat, props.center.lng, radiusMeters]);
 
   useEffect(() => {
     const layer = markersLayerRef.current;
+    const Leaflet = leafletRef.current;
     if (!layer) return;
+    if (!Leaflet) return;
 
     layer.clearLayers();
 
     for (const m of props.markers) {
-      const marker = L.marker([m.lat, m.lng]);
       const status = m.isInGeofence ? 'IN GEOFENCE' : 'OUTSIDE';
+      const marker = Leaflet.circleMarker([m.lat, m.lng], {
+        radius: 8,
+        weight: 2,
+        fillOpacity: 0.9,
+      });
       marker.bindPopup(
         `<b>${m.deviceName}</b><br/>${m.lat.toFixed(6)}, ${m.lng.toFixed(6)}<br/>${status}`
       );
